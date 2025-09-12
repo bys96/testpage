@@ -1,103 +1,200 @@
-import Image from "next/image";
+// src/app/page.tsx
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+
+declare var kakao: any;
+
+type Place = {
+  id: string;
+  name: string;
+  lat: number;
+  lng: number;
+};
 
 export default function Home() {
-  return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+  const mapRef = useRef<HTMLDivElement>(null);
+  const [map, setMap] = useState<any>(null);
+  const [markers, setMarkers] = useState<any[]>([]);
+  const [places, setPlaces] = useState<Place[]>([]);
+  const [activeMarker, setActiveMarker] = useState<any>(null);
+  const [currentLocation, setCurrentLocation] = useState<string | null>(null);
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
-        </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
+  useEffect(() => {
+    if (!mapRef.current) return;
+
+    const script = document.createElement("script");
+    script.src = `//dapi.kakao.com/v2/maps/sdk.js?appkey=${process.env.NEXT_PUBLIC_KAKAO_JS_KEY}&libraries=services&autoload=false`;
+    script.onload = () => {
+      kakao.maps.load(() => {
+        if (!mapRef.current) return;
+        const options = {
+          center: new kakao.maps.LatLng(37.5665, 126.978),
+          level: 3,
+        };
+        const mapInstance = new kakao.maps.Map(mapRef.current, options);
+        setMap(mapInstance);
+      });
+    };
+    document.head.appendChild(script);
+  }, []);
+
+  // 음식점 추천
+  const recommendPlaces = () => {
+    if (!map) return;
+
+    const ps = new kakao.maps.services.Places();
+
+    ps.keywordSearch(
+      "음식점",
+      (data: any[], status: any) => {
+        if (status === kakao.maps.services.Status.OK && data.length > 0) {
+          // 지도 bounds 가져오기
+          const bounds = map.getBounds();
+
+          // 지도 안 데이터만 필터링
+          const inMap = data.filter((place) => {
+            const pos = new kakao.maps.LatLng(place.y, place.x);
+            return bounds.contain(pos);
+          });
+
+          if (inMap.length === 0) return alert("지도 안에 음식점이 없습니다.");
+
+          // 랜덤 3개 선택
+          const shuffled = inMap.sort(() => 0.5 - Math.random());
+          const selected = shuffled.slice(0, 3);
+
+          // 기존 마커 제거
+          markers.forEach((m) => m.setMap(null));
+
+          // 마커 생성
+          const newMarkers = selected.map((place) => {
+            const marker = new kakao.maps.Marker({
+              position: new kakao.maps.LatLng(place.y, place.x),
+              map,
+              title: place.place_name,
+            });
+            return marker;
+          });
+
+          setMarkers(newMarkers);
+
+          setPlaces(
+            selected.map((p) => ({
+              id: p.id,
+              name: p.place_name,
+              lat: p.y,
+              lng: p.x,
+            }))
+          );
+        }
+      },
+      { location: map.getCenter(), radius: 1500 }
+    );
+  };
+
+  // 현재 위치 이동
+  const moveToCurrentLocation = () => {
+    if (!map) return;
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+
+        const loc = new kakao.maps.LatLng(lat, lng);
+        map.panTo(loc);
+
+        // 좌표 → 주소 변환
+        const geocoder = new kakao.maps.services.Geocoder();
+        geocoder.coord2Address(lng, lat, (result: any, status: any) => {
+          if (status === kakao.maps.services.Status.OK) {
+            const address =
+              result[0].road_address?.address_name ||
+              result[0].address?.address_name;
+            setCurrentLocation(address);
+          }
+        });
+
+        // 현재 위치는 마커 없음
+        markers.forEach((m) => m.setMap(null));
+        setPlaces([]);
+      },
+      (err) => {
+        console.error(err);
+        alert("현재 위치를 가져올 수 없습니다.");
+      }
+    );
+  };
+
+  // 리스트 클릭 → 지도 이동 + 마커 강조
+  const handlePlaceClick = (place: Place, index: number) => {
+    if (!map || !markers[index]) return;
+
+    const position = new kakao.maps.LatLng(place.lat, place.lng);
+
+    map.panTo(position);
+
+    // 이전 마커 원래대로
+    if (activeMarker) {
+      activeMarker.setImage(null);
+    }
+
+    // 클릭된 마커 강조
+    const imageSrc =
+      "https://t1.daumcdn.net/localimg/localimages/07/mapapidoc/marker_red.png";
+    const markerImage = new kakao.maps.MarkerImage(
+      imageSrc,
+      new kakao.maps.Size(64, 69),
+      { offset: new kakao.maps.Point(27, 69) }
+    );
+
+    markers[index].setImage(markerImage);
+    setActiveMarker(markers[index]);
+  };
+
+  return (
+    <div className="flex h-screen">
+      {/* 지도 */}
+      <div ref={mapRef} className="flex-1 min-h-[100vh]" />
+
+      {/* 우측 패널 */}
+      <div className="w-80 p-4 bg-gray-100 overflow-y-auto">
+        <button
+          onClick={recommendPlaces}
+          className="p-3 mb-3 w-full bg-yellow-500 text-white rounded shadow hover:bg-yellow-600"
         >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
+          뭐 먹지?
+        </button>
+
+        <button
+          onClick={moveToCurrentLocation}
+          className="p-3 mb-3 w-full bg-blue-500 text-white rounded shadow hover:bg-blue-600"
         >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+          현재 위치
+        </button>
+
+        {/* 현재 위치 주소 */}
+        {currentLocation && (
+          <div className="mb-4 p-2 bg-white rounded shadow">
+            <h2 className="font-bold mb-1">📍 현재 위치</h2>
+            <p className="text-sm text-gray-700">{currentLocation}</p>
+          </div>
+        )}
+
+        <h2 className="font-bold mb-2">🍽 추천 음식점</h2>
+        <ul className="space-y-2">
+          {places.map((place, idx) => (
+            <li
+              key={place.id}
+              onClick={() => handlePlaceClick(place, idx)}
+              className="p-2 bg-white rounded shadow cursor-pointer hover:bg-gray-200"
+            >
+              {place.name}
+            </li>
+          ))}
+        </ul>
+      </div>
     </div>
   );
 }
