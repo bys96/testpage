@@ -259,13 +259,13 @@ export default function Home() {
       <div className="w-full md:w-80 p-4 bg-gray-100 overflow-y-auto">
         <button
           onClick={recommendPlaces}
-          className="p-3 mb-3 w-full bg-yellow-500 text-white rounded shadow active:bg-yellow-600 hover:bg-yellow-600"
+          className="p-3 mb-3 w-full bg-yellow-500 text-white rounded shadow active:bg-yellow-600 md:hover:bg-yellow-600"
         >
           뭐 먹지?
         </button>
         <button
           onClick={moveToCurrentLocation}
-          className="p-3 mb-3 w-full bg-blue-500 text-white rounded shadow active:bg-blue-600 hover:bg-blue-600"
+          className="p-3 mb-3 w-full bg-blue-500 text-white rounded shadow active:bg-blue-600 md:hover:bg-blue-600"
         >
           현재 위치
         </button>
@@ -283,7 +283,7 @@ export default function Home() {
             <li
               key={place.id}
               onClick={() => handlePlaceClick(place, idx)}
-              className="p-2 bg-white rounded shadow cursor-pointer active:bg-gray-200 hover:bg-gray-200"
+              className="p-2 bg-white rounded shadow cursor-pointer active:bg-gray-200 md:hover:bg-gray-200"
             >
               {place.name}
             </li>
