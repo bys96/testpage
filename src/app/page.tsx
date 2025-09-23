@@ -3,8 +3,6 @@
 
 import { useEffect, useRef, useState } from "react";
 
-declare let kakao: any;
-
 type Place = {
   id: string;
   name: string;
@@ -21,7 +19,7 @@ export default function Home() {
   const [map, setMap] = useState<any>(null);
   const [markers, setMarkers] = useState<any[]>([]);
   const [places, setPlaces] = useState<Place[]>([]);
-  const [activeMarker, setActiveMarker] = useState<any>(null);
+  const [selectedMarker, setSelectedMarker] = useState<any>(null);
   const [currentLocation, setCurrentLocation] = useState<string | null>(null);
   const [currentMarker, setCurrentMarker] = useState<any>(null);
 
@@ -45,19 +43,16 @@ export default function Home() {
         });
         setMap(mapInstance);
 
-        // 음식점 기본 마커 (검은핀)
         defaultMarkerImage.current = new kakao.maps.MarkerImage(
           "https://static.thenounproject.com/png/map-marker-icon-462-512.png",
           new kakao.maps.Size(30, 30)
         );
 
-        // 음식점 강조 마커 (큰 파란핀)
         highlightedMarkerImage.current = new kakao.maps.MarkerImage(
-          "https://static.thenounproject.com/png/map-marker-icon-122376-512.png ",
+          "https://static.thenounproject.com/png/map-marker-icon-122376-512.png",
           new kakao.maps.Size(30, 30)
         );
 
-        // 현재 위치 마커 (노란별)
         currentLocationImage.current = new kakao.maps.MarkerImage(
           "https://t1.daumcdn.net/localimg/localimages/07/mapapidoc/markerStar.png",
           new kakao.maps.Size(26, 35)
@@ -65,18 +60,62 @@ export default function Home() {
 
         infoWindow.current = new kakao.maps.InfoWindow({ zIndex: 1 });
 
-        // 지도 클릭 시 InfoWindow 닫기
+        // 지도 클릭 시 선택 해제
         kakao.maps.event.addListener(mapInstance, "click", () => {
-          if (infoWindow.current) infoWindow.current.close();
-          if (activeMarker) {
-            activeMarker.setImage(defaultMarkerImage.current);
-            setActiveMarker(null);
-          }
+          setSelectedMarker(null);
         });
       });
     };
     document.head.appendChild(script);
   }, []);
+
+  // selectedMarker 상태 변경 시 처리
+  useEffect(() => {
+    if (!map) return;
+
+    if (selectedMarker) {
+      // 기존 선택 마커 초기화
+      markers.forEach((m) => {
+        if (m !== selectedMarker) m.setImage(defaultMarkerImage.current);
+      });
+
+      // 선택 마커 강조
+      selectedMarker.setImage(highlightedMarkerImage.current);
+
+      // InfoWindow 내용 세팅
+      const place = selectedMarker.placeData;
+      const content = `
+        <div style="width:250px;font-size:13px;padding:10px;box-sizing:border-box;">
+          <strong>${place.name}</strong><br/>
+          <span>${place.address || "주소 정보 없음"}</span><br/>
+          <span>${place.phone || ""}</span><br/>
+          <span>카테고리: ${place.category || "정보 없음"}</span><br/>
+          <div style="display:flex;gap:5px;margin-top:5px;">
+            <a href="${
+              place.place_url ||
+              `https://map.kakao.com/link/map/${encodeURIComponent(
+                place.name
+              )},${place.lat},${place.lng}`
+            }" target="_blank" style="flex:1;background:#ff5a00;color:#fff;text-align:center;padding:5px 0;border-radius:3px;text-decoration:none;">상세보기</a>
+            ${
+              place.phone
+                ? `<a href="tel:${place.phone}" style="flex:1;background:#00a0e9;color:#fff;text-align:center;padding:5px 0;border-radius:3px;text-decoration:none;">전화</a>`
+                : ""
+            }
+          </div>
+        </div>
+      `;
+      infoWindow.current.setContent(content);
+      infoWindow.current.open(map, selectedMarker);
+
+      // 지도 중앙으로 이동
+      map.panTo(selectedMarker.getPosition());
+    } else {
+      // 선택 해제 시 모든 마커 기본 이미지로, InfoWindow 닫기
+      markers.forEach((m) => m.setImage(defaultMarkerImage.current));
+      infoWindow.current.close();
+    }
+  }, [selectedMarker, map, markers]);
 
   const shuffleArray = (array: any[]) => {
     const arr = [...array];
@@ -104,6 +143,7 @@ export default function Home() {
 
           const selected = shuffleArray(inMap).slice(0, 3);
 
+          // 기존 마커 제거
           markers.forEach((m) => m.setMap(null));
 
           const newMarkers = selected.map((place) => {
@@ -114,45 +154,23 @@ export default function Home() {
               image: defaultMarkerImage.current,
             });
 
+            // placeData를 마커에 연결
+            marker.placeData = {
+              id: place.id,
+              name: place.place_name,
+              lat: place.y,
+              lng: place.x,
+              address: place.road_address_name || place.address_name,
+              phone: place.phone,
+              place_url: place.place_url,
+              category: place.category_name,
+            };
+
+            // 클릭 시 selectedMarker 상태만 변경
             kakao.maps.event.addListener(marker, "click", () => {
-              map.panTo(marker.getPosition());
-
-              if (activeMarker)
-                activeMarker.setImage(defaultMarkerImage.current);
-
-              marker.setImage(highlightedMarkerImage.current);
-              setActiveMarker(marker);
-
-              const content = `
-              <div style="width:250px;font-size:13px;padding:10px;box-sizing:border-box;">
-                <strong>${place.place_name}</strong><br/>
-                <span>${
-                  place.road_address_name ||
-                  place.address_name ||
-                  "주소 정보 없음"
-                }</span><br/>
-                <span>${place.phone || ""}</span><br/>
-                <span>카테고리: ${
-                  place.category_name || "정보 없음"
-                }</span><br/>
-                <div style="display:flex;gap:5px;margin-top:5px;">
-                  <a href="${
-                    place.place_url ||
-                    `https://map.kakao.com/link/map/${encodeURIComponent(
-                      place.place_name
-                    )},${place.y},${place.x}`
-                  }" target="_blank" style="flex:1;background:#ff5a00;color:#fff;text-align:center;padding:5px 0;border-radius:3px;text-decoration:none;">상세보기</a>
-                  ${
-                    place.phone
-                      ? `<a href="tel:${place.phone}" style="flex:1;background:#00a0e9;color:#fff;text-align:center;padding:5px 0;border-radius:3px;text-decoration:none;">전화</a>`
-                      : ""
-                  }
-                </div>
-              </div>
-              `;
-
-              infoWindow.current.setContent(content);
-              infoWindow.current.open(map, marker);
+              setSelectedMarker((prev: any | null) =>
+                prev === marker ? null : marker
+              );
             });
 
             return marker;
@@ -172,10 +190,8 @@ export default function Home() {
             }))
           );
 
-          if (activeMarker) {
-            activeMarker.setImage(defaultMarkerImage.current);
-            setActiveMarker(null);
-          }
+          // 추천 음식점 갱신 시 기존 선택 초기화
+          setSelectedMarker(null);
         }
       },
       { location: map.getCenter(), radius: 1500 }
@@ -227,44 +243,20 @@ export default function Home() {
     );
   };
 
+  // 리스트 클릭 → selectedMarker 상태 변경
   const handlePlaceClick = (place: Place, index: number) => {
-    if (!map || !markers[index]) return;
-    map.panTo(markers[index].getPosition());
-
-    if (activeMarker) activeMarker.setImage(defaultMarkerImage.current);
-
-    markers[index].setImage(highlightedMarkerImage.current);
-    setActiveMarker(markers[index]);
-
-    const content = `
-      <div style="width:250px;font-size:13px;padding:10px;box-sizing:border-box;">
-        <strong>${place.name}</strong><br/>
-        <span>${place.address || "주소 정보 없음"}</span><br/>
-        <span>${place.phone || ""}</span><br/>
-        <span>카테고리: ${place.category || "정보 없음"}</span><br/>
-        <div style="display:flex;gap:5px;margin-top:5px;">
-          <a href="${
-            place.place_url ||
-            `https://map.kakao.com/link/map/${encodeURIComponent(place.name)},${
-              place.lat
-            },${place.lng}`
-          }" target="_blank" style="flex:1;background:#ff5a00;color:#fff;text-align:center;padding:5px 0;border-radius:3px;text-decoration:none;">상세보기</a>
-          ${
-            place.phone
-              ? `<a href="tel:${place.phone}" style="flex:1;background:#00a0e9;color:#fff;text-align:center;padding:5px 0;border-radius:3px;text-decoration:none;">전화</a>`
-              : ""
-          }
-        </div>
-      </div>
-    `;
-    infoWindow.current.setContent(content);
-    infoWindow.current.open(map, markers[index]);
+    setSelectedMarker(markers[index]);
   };
 
   return (
-    <div className="flex h-screen">
-      <div ref={mapRef} className="flex-1 min-h-[100vh]" />
-      <div className="w-80 p-4 bg-gray-100 overflow-y-auto">
+    <div className="flex flex-col md:flex-row h-screen">
+      {/* 지도 */}
+      <div className="flex-1 min-h-[50vh] md:min-h-[100vh]">
+        <div ref={mapRef} className="w-full h-full" />
+      </div>
+
+      {/* 리스트 */}
+      <div className="w-full md:w-80 p-4 bg-gray-100 overflow-y-auto">
         <button
           onClick={recommendPlaces}
           className="p-3 mb-3 w-full bg-yellow-500 text-white rounded shadow hover:bg-yellow-600"
