@@ -22,11 +22,19 @@ export default function Home() {
   const [selectedMarker, setSelectedMarker] = useState<any>(null);
   const [currentLocation, setCurrentLocation] = useState<string | null>(null);
   const [currentMarker, setCurrentMarker] = useState<any>(null);
+  const [loadingPlaces, setLoadingPlaces] = useState<boolean>(false);
 
   const defaultMarkerImage = useRef<any>(null);
   const highlightedMarkerImage = useRef<any>(null);
   const currentLocationImage = useRef<any>(null);
   const infoWindow = useRef<any>(null);
+
+  // 위치별 캐시
+  const placesCache = useRef<{ [key: string]: Place[] }>({});
+  const circleRef = useRef<any>(null);
+
+  // 지도 거리
+  const mapdistance = 150;
 
   useEffect(() => {
     if (!mapRef.current) return;
@@ -37,11 +45,33 @@ export default function Home() {
       kakao.maps.load(() => {
         if (!mapRef.current) return;
 
+        // 기존 map 생성 부분
         const mapInstance = new kakao.maps.Map(mapRef.current, {
-          center: new kakao.maps.LatLng(37.5665, 126.978),
+          center: new kakao.maps.LatLng(37.5665, 126.978), // 기본값
           level: 3,
         });
         setMap(mapInstance);
+
+        // 접속하자마자 내 위치로 지도 이동
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            const loc = new kakao.maps.LatLng(
+              pos.coords.latitude,
+              pos.coords.longitude
+            );
+            mapInstance.setCenter(loc);
+
+            // 필요하면 반경 원 표시
+            showSearchRadius(mapInstance, loc, mapdistance);
+          },
+          (err) => {
+            console.warn("위치 가져오기 실패, 기본값 사용", err);
+            showSearchRadius(mapInstance, mapInstance.getCenter(), mapdistance);
+          }
+        );
+
+        // 맵 로드 직후 원 표시
+        showSearchRadius(mapInstance, mapInstance.getCenter(), mapdistance);
 
         defaultMarkerImage.current = new kakao.maps.MarkerImage(
           "https://static.thenounproject.com/png/map-marker-icon-462-512.png",
@@ -60,7 +90,6 @@ export default function Home() {
 
         infoWindow.current = new kakao.maps.InfoWindow({ zIndex: 1 });
 
-        // 지도 클릭 시 선택 해제
         kakao.maps.event.addListener(mapInstance, "click", () => {
           setSelectedMarker(null);
         });
@@ -69,20 +98,27 @@ export default function Home() {
     document.head.appendChild(script);
   }, []);
 
-  // selectedMarker 상태 변경 시 처리
+  useEffect(() => {
+    if (!map) return;
+
+    const handleResize = () => {
+      map.relayout();
+    };
+
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [map]);
+
   useEffect(() => {
     if (!map) return;
 
     if (selectedMarker) {
-      // 기존 선택 마커 초기화
       markers.forEach((m) => {
         if (m !== selectedMarker) m.setImage(defaultMarkerImage.current);
       });
 
-      // 선택 마커 강조
       selectedMarker.setImage(highlightedMarkerImage.current);
 
-      // InfoWindow 내용 세팅
       const place = selectedMarker.placeData;
       const content = `
         <div style="width:250px;font-size:13px;padding:10px;box-sizing:border-box;">
@@ -108,10 +144,8 @@ export default function Home() {
       infoWindow.current.setContent(content);
       infoWindow.current.open(map, selectedMarker);
 
-      // 지도 중앙으로 이동
       map.panTo(selectedMarker.getPosition());
     } else {
-      // 선택 해제 시 모든 마커 기본 이미지로, InfoWindow 닫기
       markers.forEach((m) => m.setImage(defaultMarkerImage.current));
       infoWindow.current.close();
     }
@@ -126,79 +160,128 @@ export default function Home() {
     return arr;
   };
 
-  // 음식점 추천
-  const recommendPlaces = () => {
+  const showMarkersAndList = (selected: Place[]) => {
     if (!map) return;
-    const ps = new kakao.maps.services.Places();
 
-    ps.keywordSearch(
-      "음식점",
-      (data: any[], status: any) => {
-        if (status === kakao.maps.services.Status.OK && data.length > 0) {
-          const bounds = map.getBounds();
-          const inMap = data.filter((place) =>
-            bounds.contain(new kakao.maps.LatLng(place.y, place.x))
-          );
-          if (inMap.length === 0) return alert("지도 안에 음식점이 없습니다.");
+    markers.forEach((m) => m.setMap(null));
 
-          const selected = shuffleArray(inMap).slice(0, 3);
+    const newMarkers = selected.map((place) => {
+      const marker = new kakao.maps.Marker({
+        position: new kakao.maps.LatLng(place.lat, place.lng),
+        map,
+        title: place.name,
+        image: defaultMarkerImage.current,
+      });
+      marker.placeData = place;
+      kakao.maps.event.addListener(marker, "click", () => {
+        setSelectedMarker((prev: any | null) =>
+          prev === marker ? null : marker
+        );
+      });
+      return marker;
+    });
 
-          // 기존 마커 제거
-          markers.forEach((m) => m.setMap(null));
-
-          const newMarkers = selected.map((place) => {
-            const marker = new kakao.maps.Marker({
-              position: new kakao.maps.LatLng(place.y, place.x),
-              map,
-              title: place.place_name,
-              image: defaultMarkerImage.current,
-            });
-
-            // placeData를 마커에 연결
-            marker.placeData = {
-              id: place.id,
-              name: place.place_name,
-              lat: place.y,
-              lng: place.x,
-              address: place.road_address_name || place.address_name,
-              phone: place.phone,
-              place_url: place.place_url,
-              category: place.category_name,
-            };
-
-            // 클릭 시 selectedMarker 상태만 변경
-            kakao.maps.event.addListener(marker, "click", () => {
-              setSelectedMarker((prev: any | null) =>
-                prev === marker ? null : marker
-              );
-            });
-
-            return marker;
-          });
-
-          setMarkers(newMarkers);
-          setPlaces(
-            selected.map((p) => ({
-              id: p.id,
-              name: p.place_name,
-              lat: p.y,
-              lng: p.x,
-              address: p.road_address_name || p.address_name,
-              phone: p.phone,
-              place_url: p.place_url,
-              category: p.category_name,
-            }))
-          );
-
-          // 추천 음식점 갱신 시 기존 선택 초기화
-          setSelectedMarker(null);
-        }
-      },
-      { location: map.getCenter(), radius: 1500 }
-    );
+    setMarkers(newMarkers);
+    setPlaces(selected);
+    setSelectedMarker(null);
   };
 
-  // 현재 위치
+  const showSearchRadius = (targetMap: any, center: any, radius: number) => {
+    if (!targetMap) return;
+
+    if (circleRef.current) circleRef.current.setMap(null);
+
+    const circle = new kakao.maps.Circle({
+      center,
+      radius,
+      strokeWeight: 1,
+      strokeColor: "#000000",
+      strokeOpacity: 0.8,
+      strokeStyle: "dashed",
+      fillOpacity: 0,
+    });
+    circle.setMap(targetMap);
+    circleRef.current = circle;
+
+    kakao.maps.event.addListener(targetMap, "center_changed", () => {
+      if (circleRef.current) {
+        circleRef.current.setPosition(targetMap.getCenter());
+      }
+    });
+  };
+
+  const recommendPlaces = () => {
+    if (!map) return;
+
+    map.relayout();
+    setLoadingPlaces(true);
+    setPlaces([]);
+    setSelectedMarker(null);
+
+    const center = map.getCenter();
+    const cacheKey = `${center.getLat()}_${center.getLng()}`;
+
+    showSearchRadius(map, center, mapdistance);
+
+    if (placesCache.current[cacheKey]?.length > 0) {
+      const cachedData = placesCache.current[cacheKey];
+      const selected = shuffleArray(cachedData).slice(0, 3);
+      showMarkersAndList(selected);
+      setLoadingPlaces(false);
+      return;
+    }
+
+    const ps = new kakao.maps.services.Places();
+    let allResults: Place[] = [];
+
+    const fetchPage = (page: number) => {
+      ps.keywordSearch(
+        "음식점",
+        (data: any[], status: any, pagination: any) => {
+          if (status === kakao.maps.services.Status.OK && data.length > 0) {
+            const bounds = map.getBounds();
+            const inMap = data.filter((place) =>
+              bounds.contain(new kakao.maps.LatLng(place.y, place.x))
+            );
+
+            allResults = [
+              ...allResults,
+              ...inMap.map((p) => ({
+                id: p.id,
+                name: p.place_name,
+                lat: p.y,
+                lng: p.x,
+                address: p.road_address_name || p.address_name,
+                phone: p.phone,
+                place_url: p.place_url,
+                category: p.category_name,
+              })),
+            ];
+
+            if (pagination.hasNextPage && page < 4) {
+              fetchPage(page + 1);
+            } else {
+              if (allResults.length === 0) {
+                setLoadingPlaces(false);
+                return alert("지도 안에 음식점이 없습니다.");
+              }
+
+              placesCache.current[cacheKey] = allResults;
+              const selected = shuffleArray(allResults).slice(0, 3);
+              showMarkersAndList(selected);
+              setLoadingPlaces(false);
+            }
+          } else {
+            setLoadingPlaces(false);
+          }
+        },
+        { location: center, radius: mapdistance, page }
+      );
+    };
+
+    fetchPage(1);
+  };
+
   const moveToCurrentLocation = () => {
     if (!map) return;
     navigator.geolocation.getCurrentPosition(
@@ -243,19 +326,16 @@ export default function Home() {
     );
   };
 
-  // 리스트 클릭 → selectedMarker 상태 변경
   const handlePlaceClick = (place: Place, index: number) => {
     setSelectedMarker(markers[index]);
   };
 
   return (
     <div className="flex flex-col md:flex-row h-screen">
-      {/* 지도 */}
       <div className="flex-1 min-h-[50vh] md:min-h-[100vh]">
         <div ref={mapRef} className="w-full h-full" />
       </div>
 
-      {/* 리스트 */}
       <div className="w-full md:w-80 p-4 bg-gray-100 overflow-y-auto">
         <button
           onClick={recommendPlaces}
@@ -279,15 +359,20 @@ export default function Home() {
 
         <h2 className="font-bold mb-2">🍽 추천 음식점</h2>
         <ul className="space-y-2">
-          {places.map((place, idx) => (
-            <li
-              key={place.id}
-              onClick={() => handlePlaceClick(place, idx)}
-              className="p-2 bg-white rounded shadow cursor-pointer active:bg-gray-200 md:hover:bg-gray-200"
-            >
-              {place.name}
-            </li>
-          ))}
+          {loadingPlaces ? (
+            <li>불러오는 중...</li>
+          ) : (
+            places.length > 0 &&
+            places.map((place, idx) => (
+              <li
+                key={place.id}
+                onClick={() => handlePlaceClick(place, idx)}
+                className="p-2 bg-white rounded shadow cursor-pointer active:bg-gray-200 md:hover:bg-gray-200"
+              >
+                {place.name}
+              </li>
+            ))
+          )}
         </ul>
       </div>
     </div>
