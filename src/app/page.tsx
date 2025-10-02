@@ -1,41 +1,55 @@
 // src/app/page.tsx
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-
-type Place = {
-  id: string;
-  name: string;
-  lat: number;
-  lng: number;
-  address?: string;
-  phone?: string;
-  place_url?: string;
-  category?: string;
-};
+import { useEffect, useRef } from "react";
+import { useDispatch, useSelector } from "react-redux";
+import { RootState } from "@/store";
+import {
+  setMap,
+  setMarkers,
+  setSelectedMarker,
+  setCurrentMarker,
+} from "@/store/mapSlice";
+import {
+  setPlaces,
+  setCurrentLocation,
+  setLoadingPlaces,
+  Place,
+} from "@/store/placeSlice";
 
 export default function Home() {
-  const mapRef = useRef<HTMLDivElement>(null);
-  const [map, setMap] = useState<any>(null);
-  const [markers, setMarkers] = useState<any[]>([]);
-  const [places, setPlaces] = useState<Place[]>([]);
-  const [selectedMarker, setSelectedMarker] = useState<any>(null);
-  const [currentLocation, setCurrentLocation] = useState<string | null>(null);
-  const [currentMarker, setCurrentMarker] = useState<any>(null);
-  const [loadingPlaces, setLoadingPlaces] = useState<boolean>(false);
+  const dispatch = useDispatch();
 
+  // Redux 상태
+  const map = useSelector((state: RootState) => state.map.map);
+  const markers = useSelector((state: RootState) => state.map.markers);
+  const selectedMarker = useSelector(
+    (state: RootState) => state.map.selectedMarker
+  );
+  const currentMarker = useSelector(
+    (state: RootState) => state.map.currentMarker
+  );
+
+  const places = useSelector((state: RootState) => state.place.places);
+  const loadingPlaces = useSelector(
+    (state: RootState) => state.place.loadingPlaces
+  );
+  const currentLocation = useSelector(
+    (state: RootState) => state.place.currentLocation
+  );
+
+  // refs
+  const mapRef = useRef<HTMLDivElement>(null);
   const defaultMarkerImage = useRef<any>(null);
   const highlightedMarkerImage = useRef<any>(null);
   const currentLocationImage = useRef<any>(null);
   const infoWindow = useRef<any>(null);
-
-  // 위치별 캐시
-  const placesCache = useRef<{ [key: string]: Place[] }>({});
   const circleRef = useRef<any>(null);
+  const placesCache = useRef<{ [key: string]: Place[] }>({});
 
-  // 지도 거리
   const mapdistance = 150;
 
+  // 지도 초기화
   useEffect(() => {
     if (!mapRef.current) return;
 
@@ -45,14 +59,12 @@ export default function Home() {
       kakao.maps.load(() => {
         if (!mapRef.current) return;
 
-        // 기존 map 생성 부분
         const mapInstance = new kakao.maps.Map(mapRef.current, {
-          center: new kakao.maps.LatLng(37.5665, 126.978), // 기본값
+          center: new kakao.maps.LatLng(37.5665, 126.978),
           level: 3,
         });
-        setMap(mapInstance);
+        dispatch(setMap(mapInstance));
 
-        // 접속하자마자 내 위치로 지도 이동
         navigator.geolocation.getCurrentPosition(
           (pos) => {
             const loc = new kakao.maps.LatLng(
@@ -60,8 +72,6 @@ export default function Home() {
               pos.coords.longitude
             );
             mapInstance.setCenter(loc);
-
-            // 필요하면 반경 원 표시
             showSearchRadius(mapInstance, loc, mapdistance);
           },
           (err) => {
@@ -70,19 +80,16 @@ export default function Home() {
           }
         );
 
-        // 맵 로드 직후 원 표시
         showSearchRadius(mapInstance, mapInstance.getCenter(), mapdistance);
 
         defaultMarkerImage.current = new kakao.maps.MarkerImage(
           "https://static.thenounproject.com/png/map-marker-icon-462-512.png",
           new kakao.maps.Size(30, 30)
         );
-
         highlightedMarkerImage.current = new kakao.maps.MarkerImage(
           "https://static.thenounproject.com/png/map-marker-icon-122376-512.png",
           new kakao.maps.Size(30, 30)
         );
-
         currentLocationImage.current = new kakao.maps.MarkerImage(
           "https://t1.daumcdn.net/localimg/localimages/07/mapapidoc/markerStar.png",
           new kakao.maps.Size(26, 35)
@@ -91,24 +98,22 @@ export default function Home() {
         infoWindow.current = new kakao.maps.InfoWindow({ zIndex: 1 });
 
         kakao.maps.event.addListener(mapInstance, "click", () => {
-          setSelectedMarker(null);
+          dispatch(setSelectedMarker(null));
         });
       });
     };
     document.head.appendChild(script);
   }, []);
 
+  // 지도 리사이즈
   useEffect(() => {
     if (!map) return;
-
-    const handleResize = () => {
-      map.relayout();
-    };
-
+    const handleResize = () => map.relayout();
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, [map]);
 
+  // 선택 마커 변경
   useEffect(() => {
     if (!map) return;
 
@@ -116,7 +121,6 @@ export default function Home() {
       markers.forEach((m) => {
         if (m !== selectedMarker) m.setImage(defaultMarkerImage.current);
       });
-
       selectedMarker.setImage(highlightedMarkerImage.current);
 
       const place = selectedMarker.placeData;
@@ -174,16 +178,14 @@ export default function Home() {
       });
       marker.placeData = place;
       kakao.maps.event.addListener(marker, "click", () => {
-        setSelectedMarker((prev: any | null) =>
-          prev === marker ? null : marker
-        );
+        dispatch(setSelectedMarker(marker === selectedMarker ? null : marker));
       });
       return marker;
     });
 
-    setMarkers(newMarkers);
-    setPlaces(selected);
-    setSelectedMarker(null);
+    dispatch(setMarkers(newMarkers));
+    dispatch(setPlaces(selected));
+    dispatch(setSelectedMarker(null));
   };
 
   const showSearchRadius = (targetMap: any, center: any, radius: number) => {
@@ -204,19 +206,17 @@ export default function Home() {
     circleRef.current = circle;
 
     kakao.maps.event.addListener(targetMap, "center_changed", () => {
-      if (circleRef.current) {
+      if (circleRef.current)
         circleRef.current.setPosition(targetMap.getCenter());
-      }
     });
   };
 
   const recommendPlaces = () => {
     if (!map) return;
-
     map.relayout();
-    setLoadingPlaces(true);
-    setPlaces([]);
-    setSelectedMarker(null);
+    dispatch(setLoadingPlaces(true));
+    dispatch(setPlaces([]));
+    dispatch(setSelectedMarker(null));
 
     const center = map.getCenter();
     const cacheKey = `${center.getLat()}_${center.getLng()}`;
@@ -227,7 +227,7 @@ export default function Home() {
       const cachedData = placesCache.current[cacheKey];
       const selected = shuffleArray(cachedData).slice(0, 3);
       showMarkersAndList(selected);
-      setLoadingPlaces(false);
+      dispatch(setLoadingPlaces(false));
       return;
     }
 
@@ -262,17 +262,17 @@ export default function Home() {
               fetchPage(page + 1);
             } else {
               if (allResults.length === 0) {
-                setLoadingPlaces(false);
+                dispatch(setLoadingPlaces(false));
                 return alert("지도 안에 음식점이 없습니다.");
               }
 
               placesCache.current[cacheKey] = allResults;
               const selected = shuffleArray(allResults).slice(0, 3);
               showMarkersAndList(selected);
-              setLoadingPlaces(false);
+              dispatch(setLoadingPlaces(false));
             }
           } else {
-            setLoadingPlaces(false);
+            dispatch(setLoadingPlaces(false));
           }
         },
         { location: center, radius: mapdistance, page }
@@ -301,14 +301,14 @@ export default function Home() {
               const address =
                 result[0].road_address?.address_name ||
                 result[0].address?.address_name;
-              setCurrentLocation(address);
+              dispatch(setCurrentLocation(address));
             }
           }
         );
 
         markers.forEach((m) => m.setMap(null));
-        setMarkers([]);
-        setPlaces([]);
+        dispatch(setMarkers([]));
+        dispatch(setPlaces([]));
 
         if (currentMarker) currentMarker.setMap(null);
 
@@ -317,7 +317,7 @@ export default function Home() {
           map,
           image: currentLocationImage.current,
         });
-        setCurrentMarker(marker);
+        dispatch(setCurrentMarker(marker));
       },
       (err) => {
         console.error(err);
@@ -327,7 +327,7 @@ export default function Home() {
   };
 
   const handlePlaceClick = (place: Place, index: number) => {
-    setSelectedMarker(markers[index]);
+    dispatch(setSelectedMarker(markers[index]));
   };
 
   return (
